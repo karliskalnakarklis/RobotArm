@@ -33,7 +33,7 @@ def converse(text: str, conversation_id: str = None) -> dict:
     return response.json()
 
 # === 🎙️ Voice Input Setup ===
-model = Model("../vosk-model-small-en-us-0.15")
+model = Model("vosk-model-small-en-us-0.15")
 rec = KaldiRecognizer(model, 16000)
 
 p = pyaudio.PyAudio()
