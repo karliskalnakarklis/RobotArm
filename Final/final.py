@@ -24,10 +24,20 @@ def resample_audio(audio_data_48k):
     return audio_resampled.astype(np.int16).tobytes()
 
 # ===== 🗣️ TTS Setup (espeak) =====
-def speak(text):
-    """Speak text using eSpeak (lightweight and works on ARM boards)."""
-    print(f"🗣️ Speaking: {text}")
-    subprocess.run(['espeak', '-s150', text])
+def speak(response):
+    """Extracts plain speech from HA response and uses espeak to speak it."""
+    try:
+        # Get the speech string from the response dictionary
+        text = response.get("speech", {}).get("plain", {}).get("speech", "")
+        if not text or not isinstance(text, str):
+            print("⚠️ No valid speech string found in response.")
+            return
+
+        print(f"🗣️ Speaking: {text}")
+        subprocess.run(['espeak', '-s150', text])
+    except Exception as e:
+        print("🚨 Error during TTS:", e)
+
 
 # ===== 🧠 Home Assistant Setup =====
 HA_URL = "https://tfd9eaklrsaswbraeoswnlyfx4pmaaoj.ui.nabu.casa"
