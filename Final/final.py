@@ -64,8 +64,13 @@ model = Model("vosk-model-small-en-us-0.15")
 rec = KaldiRecognizer(model, 16000)
 
 p = pyaudio.PyAudio()
-stream = p.open(format=pyaudio.paInt16, channels=1, rate=48000,
-                input=True, frames_per_buffer=8000)
+stream = p.open(format=pyaudio.paInt16,
+                channels=1,
+                rate=48000,
+                input=True,
+                input_device_index=1,
+                frames_per_buffer=1024)
+
 stream.start_stream()
 
 print("🗣️ Listening for 'Jarvis'...")
