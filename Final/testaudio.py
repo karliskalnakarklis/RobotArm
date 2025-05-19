@@ -13,7 +13,7 @@ stream = p.open(format=pyaudio.paInt16,
                 channels=1,
                 rate=48000,
                 input=True,
-                input_device_index=0,  # Your selected mic device
+                input_device_index=1,  # Your selected mic device
                 frames_per_buffer=1024)
 
 print("Recording...")
