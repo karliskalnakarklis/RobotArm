@@ -8,7 +8,7 @@ stream = p.open(
     channels=1,
     rate=16000,
     input=True,
-    input_device_index=<working index>,
+    input_device_index=0,
     frames_per_buffer=1024
 )
 
