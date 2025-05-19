@@ -1,31 +1,34 @@
 import pyaudio
+import wave
 
 p = pyaudio.PyAudio()
 
-# List available devices
-for i in range(p.get_device_count()):
-    info = p.get_device_info_by_index(i)
-    if info['maxInputChannels'] > 0:
-        print(f"ID {i}: {info['name']} - Channels: {info['maxInputChannels']}")
+stream = p.open(
+    format=pyaudio.paInt16,
+    channels=1,
+    rate=16000,
+    input=True,
+    input_device_index=<working index>,
+    frames_per_buffer=1024
+)
 
-# Test recording from device 0
-stream = p.open(format=pyaudio.paInt16,
-                channels=2,
-                rate=48000,
-                input=True,
-                input_device_index=0,  # Your selected mic device
-                frames_per_buffer=1024)
+frames = []
 
-print("Recording...")
+print("🎙️ Recording for 5 seconds...")
+for _ in range(0, int(16000 / 1024 * 5)):
+    data = stream.read(1024)
+    frames.append(data)
 
-try:
-    while True:
-        data = stream.read(1024)
-        volume = max(data)
-        print(f"Volume: {volume}")
-except KeyboardInterrupt:
-    print("Stopping...")
-finally:
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
+print("✅ Done")
+
+stream.stop_stream()
+stream.close()
+p.terminate()
+
+with wave.open("test_output.wav", "wb") as wf:
+    wf.setnchannels(1)
+    wf.setsampwidth(p.get_sample_size(pyaudio.paInt16))
+    wf.setframerate(16000)
+    wf.writeframes(b"".join(frames))
+
+print("🎧 Saved as test_output.wav")
