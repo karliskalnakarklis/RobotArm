@@ -68,7 +68,7 @@ stream = p.open(format=pyaudio.paInt16,
                 channels=1,
                 rate=48000,
                 input=True,
-                input_device_index=1,
+                input_device_index=0,
                 frames_per_buffer=1024)
 
 stream.start_stream()
