@@ -1,4 +1,6 @@
 pyttsx3
-PyAudio~=0.2.14
+subprocess
+numpy
+sounddevice
 vosk~=0.3.45
 requests~=2.32.3
