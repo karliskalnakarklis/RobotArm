@@ -1,5 +1,4 @@
 pyttsx3
-subprocess
 numpy
 sounddevice
 vosk~=0.3.45
