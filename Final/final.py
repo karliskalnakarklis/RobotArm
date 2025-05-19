@@ -30,8 +30,8 @@ def speak(text):
     subprocess.run(['espeak', '-s150', text])
 
 # ===== 🧠 Home Assistant Setup =====
-HA_URL = "https://your-ha-url.com"  # ⚠️ Replace this
-TOKEN = "your-long-lived-token"     # ⚠️ Replace this too
+HA_URL = "https://tfd9eaklrsaswbraeoswnlyfx4pmaaoj.ui.nabu.casa"
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjYzIxZDIyZDdjZmE0MGQ1YTIxMjYyOWMwNDIyNzJlYSIsImlhdCI6MTc0NjcwNTMyMSwiZXhwIjoyMDYyMDY1MzIxfQ.UI0lzY2hLPEFmWQaHkvjw-VGwLzie_-PXNA2PMIPvws" 
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
