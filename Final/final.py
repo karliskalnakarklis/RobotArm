@@ -9,90 +9,94 @@ import numpy as np
 import subprocess
 
 # ===== 🔊 Audio Configuration =====
-SAMPLE_RATE_HW = 48000  # Hardware-supported rate (from arecord test)
-SAMPLE_RATE_VOSK = 16000  # Vosk's preferred rate
+SAMPLE_RATE_HW = 48000       # Mic's hardware-supported rate
+SAMPLE_RATE_VOSK = 16000     # Vosk's required rate
 
-# ===== 🎤 Audio Resampling Function =====
+# ===== 🎤 Resampling Function =====
 def resample_audio(audio_data_48k):
-    """Resamples 48kHz audio to 16kHz for Vosk"""
+    """Resample raw 48kHz audio to 16kHz using librosa."""
     audio_np = np.frombuffer(audio_data_48k, dtype=np.int16)
     audio_resampled = librosa.resample(
-        audio_np.astype(np.float32),
-        orig_sr=SAMPLE_RATE_HW,
+        audio_np.astype(np.float32), 
+        orig_sr=SAMPLE_RATE_HW, 
         target_sr=SAMPLE_RATE_VOSK
     )
     return audio_resampled.astype(np.int16).tobytes()
 
-# ===== 🔊 TTS Setup (Lightweight ESpeak) =====
+# ===== 🗣️ TTS Setup (espeak) =====
 def speak(text):
-    """Uses espeak for better Pi compatibility"""
+    """Speak text using eSpeak (lightweight and works on ARM boards)."""
+    print(f"🗣️ Speaking: {text}")
     subprocess.run(['espeak', '-s150', text])
 
 # ===== 🧠 Home Assistant Setup =====
-HA_URL = "https://your-ha-url.com"
-TOKEN = "your-long-lived-token"
+HA_URL = "https://your-ha-url.com"  # ⚠️ Replace this
+TOKEN = "your-long-lived-token"     # ⚠️ Replace this too
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
 }
 
 def converse(text, conversation_id=None):
+    """Send user text to Home Assistant's LLM agent."""
     payload = {
         "text": text,
         "agent_id": "conversation.llama3_2_2"
     }
     if conversation_id:
         payload["conversation_id"] = conversation_id
-    
-    response = requests.post(
-        f"{HA_URL}/api/conversation/process",
-        headers=HEADERS,
-        json=payload
-    )
+
+    print(f"📡 Sending to Home Assistant: {text}")
+    response = requests.post(f"{HA_URL}/api/conversation/process", headers=HEADERS, json=payload)
+    response.raise_for_status()
     data = response.json()
     return data.get("response", "<no response>"), data.get("conversation_id")
 
-# ===== 🎤 Vosk Setup =====
+# ===== 🎧 Vosk Setup =====
 model = Model("vosk-model-small-en-us-0.15")
 rec = KaldiRecognizer(model, SAMPLE_RATE_VOSK)
 
-# ===== 🎤 PyAudio Setup (48kHz Hardware) =====
+# ===== 🎤 Microphone Setup =====
 p = pyaudio.PyAudio()
 stream = p.open(
     format=pyaudio.paInt16,
     channels=1,
-    rate=SAMPLE_RATE_HW,  # Matches hardware capability
+    rate=SAMPLE_RATE_HW,
     input=True,
-    input_device_index=0,  # Use hw:0,0
-    frames_per_buffer=2048  # Smaller = less latency, higher CPU
+    input_device_index=0,
+    frames_per_buffer=2048
 )
 
 # ===== 🤖 Main Loop =====
-print("🗣️ Listening for 'Jarvis' at 48kHz (resampling to 16kHz for Vosk)...")
+print("🧠 Listening for 'Jarvis' at 48kHz (resampled to 16kHz)...")
 conv_id = None
 
 try:
     while True:
-        # Read 48kHz audio from hardware
         data_48k = stream.read(2048, exception_on_overflow=False)
-        
-        # Resample to 16kHz for Vosk
         data_16k = resample_audio(data_48k)
-        
+
         if rec.AcceptWaveform(data_16k):
             result = json.loads(rec.Result())
-            text = result.get("text", "").lower()
-            
-            if "jarvis" in text:
-                command = text.split("jarvis", 1)[1].strip()
-                if command:
-                    print(f"🎤 Heard command: {command}")
-                    reply, conv_id = converse(command, conv_id)
-                    print(f"🤖 Assistant: {reply}")
-                    speak(reply)
+            spoken = result.get("text", "").lower()
+            if not spoken:
+                continue
+
+            print(f"🧏 Heard: {spoken}")
+
+            if "jarvis" in spoken:
+                print("🚨 Wake word detected!")
+                command = spoken.split("jarvis", 1)[1].strip()
+                if not command:
+                    print("🤷 You said 'Jarvis' but nothing after that.")
+                    continue
+
+                reply, conv_id = converse(command, conversation_id=conv_id)
+                print(f"🤖 Assistant: {reply}")
+                speak(reply)
 
 except KeyboardInterrupt:
-    print("\nShutting down...")
+    print("\n👋 Shutting down like a polite robot...")
 finally:
     stream.stop_stream()
     stream.close()
