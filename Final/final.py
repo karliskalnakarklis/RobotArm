@@ -1,104 +1,107 @@
-import pyttsx3
+import subprocess
 import requests
-import uuid
-from vosk import Model, KaldiRecognizer
-import pyaudio
 import json
-import re
+import sounddevice as sd
+from vosk import Model, KaldiRecognizer
+import queue
+import time
+import numpy as np
 
 # === 🔊 TTS Setup ===
-engine = pyttsx3.init()
-engine.setProperty('rate', 150)
-engine.setProperty('volume', 1.0)
-
-# Get female voice if available
-voices = engine.getProperty('voices')
-if len(voices) > 1:
-    engine.setProperty('voice', voices[0].id)
-
-def speak(response):
+def speak(text):
     try:
-        # Extract actual speech text
-        text = response['speech']['plain']['speech']
-        if not isinstance(text, str):
-            raise TypeError("Speech value is not a string.")
-
-        engine.say(text)
-        engine.runAndWait()
+        subprocess.run(['espeak-ng', '-v', 'en-us+m3', '-s', '150', text])
     except Exception as e:
-        print("Error during TTS:", e)
+        print("TTS Error:", e)
 
+# === Audio Configuration ===
+SAMPLE_RATE = 16000
+CHANNELS = 1
+BLOCK_SIZE = 8000  # Increased buffer size
+audio_queue = queue.Queue()
 
-# === 🧠 Home Assistant Setup ===
-HA_URL = "https://tfd9eaklrsaswbraeoswnlyfx4pmaaoj.ui.nabu.casa"
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjYzIxZDIyZDdjZmE0MGQ1YTIxMjYyOWMwNDIyNzJlYSIsImlhdCI6MTc0NjcwNTMyMSwiZXhwIjoyMDYyMDY1MzIxfQ.UI0lzY2hLPEFmWQaHkvjw-VGwLzie_-PXNA2PMIPvws"  # ⚠️ Be sure to keep this safe
-AGENT_ID = "conversation.llama3_2_2"
+def audio_callback(indata, frames, time, status):
+    audio_queue.put(indata.copy())
 
-HEADERS = {
-    "Authorization": f"Bearer {TOKEN}",
-    "Content-Type": "application/json",
-}
-ENDPOINT = "/api/conversation/process"
+# === Vosk Speech Recognition ===
+def init_vosk():
+    model = Model("vosk-model-small-en-us-0.15")
+    rec = KaldiRecognizer(model, SAMPLE_RATE)
+    rec.SetWords(True)  # Enable word-level timings
+    rec.SetPartialWords(True)  # Enable partial results
+    return rec
 
-def converse(text: str, conversation_id: str = None) -> str:
-    url = f"{HA_URL}{ENDPOINT}"
-    payload = {
-        "text": text,
-        "agent_id": AGENT_ID,
-    }
-    if conversation_id:
-        payload["conversation_id"] = conversation_id
+# === Main Program ===
+def main():
+    # Initialize recognizer
+    rec = init_vosk()
+    
+    # Audio device setup
+    input_device = None
+    devices = sd.query_devices()
+    for i, dev in enumerate(devices):
+        if dev['max_input_channels'] > 0 and 'ac200' in dev['name'].lower():
+            input_device = i
+            break
+    
+    if input_device is None:
+        input_device = sd.default.device[0]
+    
+    print(f"\nUsing audio device: {devices[input_device]['name']}")
+    print("Listening... (Say 'Jarvis' followed by your command)")
 
-    print(f"\n➡️ Talking to Home Assistant...")
-    print("📝 Text:", text)
+    with sd.InputStream(device=input_device,
+                      channels=CHANNELS,
+                      samplerate=SAMPLE_RATE,
+                      callback=audio_callback,
+                      blocksize=BLOCK_SIZE,
+                      dtype='int16'):
+        
+        conv_id = None
+        silence_threshold = 0.02  # Adjust based on your environment
+        last_speech_time = time.time()
 
-    response = requests.post(url, headers=HEADERS, json=payload)
-    response.raise_for_status()
-    data = response.json()
-
-    # Return the actual response string (not the full JSON)
-    return data.get("response") or data.get("result") or "<no response>", data.get("conversation_id")
-
-# === 🎤 Vosk Setup ===
-model = Model("vosk-model-small-en-us-0.15")
-rec = KaldiRecognizer(model, 16000)
-
-p = pyaudio.PyAudio()
-stream = p.open(format=pyaudio.paInt16,
-                channels=1,
-                rate=48000,
-                input=True,
-                input_device_index=0,
-                frames_per_buffer=1024)
-
-stream.start_stream()
-
-print("🗣️ Listening for 'Jarvis'...")
-
-conv_id = None  # Keep conversation context
-
-while True:
-    data = stream.read(4000, exception_on_overflow=False)
-    if rec.AcceptWaveform(data):
-        result_json = json.loads(rec.Result())
-        spoken_text = result_json.get("text", "").lower()
-        if not spoken_text:
-            continue
-
-        print(f"🧏 Heard: {spoken_text}")
-
-        if "jarvis" in spoken_text:
-            print("🚨 Wake word detected: 'Jarvis'")
-            split_text = spoken_text.split("jarvis", 1)
-            command = split_text[1].strip() if len(split_text) > 1 else ""
-
-            if command == "":
-                print("🤔 You said 'Jarvis' but gave no command.")
+        while True:
+            try:
+                if not audio_queue.empty():
+                    data = audio_queue.get()
+                    
+                    # Check audio energy level
+                    audio_energy = np.sqrt(np.mean(data**2))
+                    if audio_energy < silence_threshold:
+                        continue
+                    
+                    # Process with Vosk
+                    if rec.AcceptWaveform(data.tobytes()):
+                        result = json.loads(rec.Result())
+                        text = result.get('text', '').lower()
+                        if text and "jarvis" in text:
+                            command = text.split('jarvis', 1)[1].strip()
+                            if command:
+                                print(f"\nCommand: {command}")
+                                reply, conv_id = converse(command, conv_id)
+                                print(f"Assistant: {reply}")
+                                speak(reply)
+                    else:
+                        # Get partial results for debugging
+                        partial = json.loads(rec.PartialResult())
+                        if 'partial' in partial:
+                            print(f"\rListening: {partial['partial']}", end='')
+                    
+                    last_speech_time = time.time()
+                
+                # Visual feedback
+                if time.time() - last_speech_time > 3:
+                    print("\rWaiting for speech...", end='')
+                
+                time.sleep(0.05)
+                
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                break
+            except Exception as e:
+                print(f"\nError: {e}")
                 continue
 
-            try:
-                reply, conv_id = converse(command, conversation_id=conv_id)
-                print(f"🤖 Assistant: {reply}")
-                speak(reply)  # Speak only the reply
-            except Exception as e:
-                print(f"⚠️ Error talking to Home Assistant: {e}")
+if __name__ == "__main__":
+    main()
