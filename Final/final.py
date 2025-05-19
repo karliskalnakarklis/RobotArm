@@ -1,93 +1,99 @@
-import subprocess
+import pyttsx3
 import requests
-import json
-import os
+import uuid
 from vosk import Model, KaldiRecognizer
 import pyaudio
-import time
+import json
+import librosa
+import numpy as np
+import subprocess
 
-# === 🔊 TTS Setup ===
+# ===== 🔊 Audio Configuration =====
+SAMPLE_RATE_HW = 48000  # Hardware-supported rate (from arecord test)
+SAMPLE_RATE_VOSK = 16000  # Vosk's preferred rate
+
+# ===== 🎤 Audio Resampling Function =====
+def resample_audio(audio_data_48k):
+    """Resamples 48kHz audio to 16kHz for Vosk"""
+    audio_np = np.frombuffer(audio_data_48k, dtype=np.int16)
+    audio_resampled = librosa.resample(
+        audio_np.astype(np.float32),
+        orig_sr=SAMPLE_RATE_HW,
+        target_sr=SAMPLE_RATE_VOSK
+    )
+    return audio_resampled.astype(np.int16).tobytes()
+
+# ===== 🔊 TTS Setup (Lightweight ESpeak) =====
 def speak(text):
-    try:
-        subprocess.run(['espeak-ng', '-v', 'en-us+m3', '-s', '150', text])
-    except Exception as e:
-        print("TTS Error:", e)
+    """Uses espeak for better Pi compatibility"""
+    subprocess.run(['espeak', '-s150', text])
 
-# === Audio Configuration ===
-def setup_audio():
-    p = pyaudio.PyAudio()
-    
-    # List available devices
-    print("\nAvailable audio devices:")
-    for i in range(p.get_device_count()):
-        dev = p.get_device_info_by_index(i)
-        print(f"{i}: {dev['name']} (Input channels: {dev['maxInputChannels']})")
-    
-    # Try to find the correct device
-    input_device = None
-    for i in range(p.get_device_count()):
-        dev = p.get_device_info_by_index(i)
-        if dev['maxInputChannels'] > 0 and 'ac200' in dev['name'].lower():
-            input_device = i
-            break
-    
-    if input_device is None:
-        print("Warning: Using default input device")
-        input_device = p.get_default_input_device_info()['index']
-    
-    print(f"\nUsing device: {input_device} - {p.get_device_info_by_index(input_device)['name']}")
-    
-    # Configure stream with explicit device settings
-    stream = p.open(format=pyaudio.paInt16,
-                   channels=1,
-                   rate=16000,
-                   input=True,
-                   input_device_index=input_device,
-                   frames_per_buffer=8000)
-    return p, stream
+# ===== 🧠 Home Assistant Setup =====
+HA_URL = "https://your-ha-url.com"
+TOKEN = "your-long-lived-token"
+HEADERS = {
+    "Authorization": f"Bearer {TOKEN}",
+    "Content-Type": "application/json"
+}
 
-# === Main Program ===
-def main():
-    # Initialize Vosk
-    model = Model("vosk-model-small-en-us-0.15")
-    rec = KaldiRecognizer(model, 16000)
+def converse(text, conversation_id=None):
+    payload = {
+        "text": text,
+        "agent_id": "conversation.llama3_2_2"
+    }
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
     
-    # Setup audio
-    p, stream = setup_audio()
-    
-    print("\nListening for 'Jarvis'... (Press Ctrl+C to stop)")
-    
-    try:
-        while True:
-            data = stream.read(4000, exception_on_overflow=False)
-            if rec.AcceptWaveform(data):
-                result = json.loads(rec.Result())
-                text = result.get('text', '').lower()
-                if text and "jarvis" in text:
-                    command = text.split('jarvis', 1)[1].strip()
-                    if command:
-                        print(f"\nCommand: {command}")
-                        # Add your Home Assistant integration here
-                        response = "I heard: " + command
-                        print("Assistant:", response)
-                        speak(response)
-            else:
-                # Show we're listening
-                print(".", end="", flush=True)
-                time.sleep(0.1)
-                
-    except KeyboardInterrupt:
-        print("\nExiting...")
-    finally:
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
+    response = requests.post(
+        f"{HA_URL}/api/conversation/process",
+        headers=HEADERS,
+        json=payload
+    )
+    data = response.json()
+    return data.get("response", "<no response>"), data.get("conversation_id")
 
-if __name__ == "__main__":
-    # First verify ALSA configuration
-    print("Verifying ALSA configuration...")
-    os.system('alsamixer')  # Check this shows your audio device
-    os.system('arecord -l')  # Should list your microphone
-    
-    # Run main program
-    main()
+# ===== 🎤 Vosk Setup =====
+model = Model("vosk-model-small-en-us-0.15")
+rec = KaldiRecognizer(model, SAMPLE_RATE_VOSK)
+
+# ===== 🎤 PyAudio Setup (48kHz Hardware) =====
+p = pyaudio.PyAudio()
+stream = p.open(
+    format=pyaudio.paInt16,
+    channels=1,
+    rate=SAMPLE_RATE_HW,  # Matches hardware capability
+    input=True,
+    input_device_index=0,  # Use hw:0,0
+    frames_per_buffer=2048  # Smaller = less latency, higher CPU
+)
+
+# ===== 🤖 Main Loop =====
+print("🗣️ Listening for 'Jarvis' at 48kHz (resampling to 16kHz for Vosk)...")
+conv_id = None
+
+try:
+    while True:
+        # Read 48kHz audio from hardware
+        data_48k = stream.read(2048, exception_on_overflow=False)
+        
+        # Resample to 16kHz for Vosk
+        data_16k = resample_audio(data_48k)
+        
+        if rec.AcceptWaveform(data_16k):
+            result = json.loads(rec.Result())
+            text = result.get("text", "").lower()
+            
+            if "jarvis" in text:
+                command = text.split("jarvis", 1)[1].strip()
+                if command:
+                    print(f"🎤 Heard command: {command}")
+                    reply, conv_id = converse(command, conv_id)
+                    print(f"🤖 Assistant: {reply}")
+                    speak(reply)
+
+except KeyboardInterrupt:
+    print("\nShutting down...")
+finally:
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
