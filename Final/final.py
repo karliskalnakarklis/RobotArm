@@ -73,7 +73,7 @@ stream = p.open(
     channels=1,
     rate=SAMPLE_RATE_HW,
     input=True,
-    input_device_index=0,
+    input_device_index=2,
     frames_per_buffer=2048
 )
 
