@@ -1,27 +1,11 @@
-import pyttsx3
 import requests
-import uuid
 from vosk import Model, KaldiRecognizer
 import pyaudio
 import json
-import librosa
-import numpy as np
 import subprocess
 
 # ===== 🔊 Audio Configuration =====
-SAMPLE_RATE_HW = 48000       # Mic's hardware-supported rate
-SAMPLE_RATE_VOSK = 16000     # Vosk's required rate
-
-# ===== 🎤 Resampling Function =====
-def resample_audio(audio_data_48k):
-    """Resample raw 48kHz audio to 16kHz using librosa."""
-    audio_np = np.frombuffer(audio_data_48k, dtype=np.int16)
-    audio_resampled = librosa.resample(
-        audio_np.astype(np.float32), 
-        orig_sr=SAMPLE_RATE_HW, 
-        target_sr=SAMPLE_RATE_VOSK
-    )
-    return audio_resampled.astype(np.int16).tobytes()
+SAMPLE_RATE = 16000     # Using 16kHz directly
 
 # ===== 🗣️ TTS Setup (espeak) =====
 def speak(response):
@@ -37,7 +21,6 @@ def speak(response):
         subprocess.run(['espeak', '-s150', text])
     except Exception as e:
         print("🚨 Error during TTS:", e)
-
 
 # ===== 🧠 Home Assistant Setup =====
 HA_URL = "https://tfd9eaklrsaswbraeoswnlyfx4pmaaoj.ui.nabu.casa"
@@ -64,29 +47,28 @@ def converse(text, conversation_id=None):
 
 # ===== 🎧 Vosk Setup =====
 model = Model("vosk-model-small-en-us-0.15")
-rec = KaldiRecognizer(model, SAMPLE_RATE_VOSK)
+rec = KaldiRecognizer(model, SAMPLE_RATE)
 
 # ===== 🎤 Microphone Setup =====
 p = pyaudio.PyAudio()
 stream = p.open(
     format=pyaudio.paInt16,
     channels=1,
-    rate=SAMPLE_RATE_HW,
+    rate=SAMPLE_RATE,
     input=True,
-    input_device_index=2,
+    input_device_index=0,
     frames_per_buffer=2048
 )
 
 # ===== 🤖 Main Loop =====
-print("🧠 Listening for 'Jarvis' at 48kHz (resampled to 16kHz)...")
+print(f"🧠 Listening for 'Jarvis' at {SAMPLE_RATE}Hz...")
 conv_id = None
 
 try:
     while True:
-        data_48k = stream.read(2048, exception_on_overflow=False)
-        data_16k = resample_audio(data_48k)
+        data = stream.read(2048, exception_on_overflow=False)
 
-        if rec.AcceptWaveform(data_16k):
+        if rec.AcceptWaveform(data):
             result = json.loads(rec.Result())
             spoken = result.get("text", "").lower()
             if not spoken:
