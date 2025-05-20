@@ -66,35 +66,14 @@ def converse(text, conversation_id=None):
 model = Model("vosk-model-small-en-us-0.15")
 rec = KaldiRecognizer(model, SAMPLE_RATE_VOSK)
 
+# ===== 🎤 Microphone Setup =====
 p = pyaudio.PyAudio()
-
-# List available audio devices
-print("Available audio devices:")
-for i in range(p.get_device_count()):
-    dev = p.get_device_info_by_index(i)
-    print(f"{i}: {dev['name']} (Input channels: {dev['maxInputChannels']})")
-
-# Use USB microphone (card 2, device 0 from your aplay -l output)
-# You may need to adjust this index based on the printed list
-USB_MIC_INDEX = None
-for i in range(p.get_device_count()):
-    dev = p.get_device_info_by_index(i)
-    if "G432" in dev['name'] and dev['maxInputChannels'] > 0:
-        USB_MIC_INDEX = i
-        break
-
-if USB_MIC_INDEX is None:
-    print("⚠️ No suitable USB microphone found. Using default input device.")
-    USB_MIC_INDEX = p.get_default_input_device_info()['index']
-
-print(f"Using audio device index: {USB_MIC_INDEX}")
-
 stream = p.open(
     format=pyaudio.paInt16,
     channels=1,
     rate=SAMPLE_RATE_HW,
     input=True,
-    input_device_index=USB_MIC_INDEX,
+    input_device_index=0,
     frames_per_buffer=2048
 )
 
