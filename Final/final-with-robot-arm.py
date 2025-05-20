@@ -7,6 +7,38 @@ import json
 import librosa
 import numpy as np
 import subprocess
+import wiringpi as wp
+import time
+import sys
+import termios
+import tty
+
+# ===== 🤖 Robot Arm Setup =====
+wp.wiringPiSetup()
+LR_SERVO_PIN = 2  # Left-Right
+UD_SERVO_PIN = 3  # Up-Down
+
+wp.softPwmCreate(LR_SERVO_PIN, 0, 200)
+wp.softPwmCreate(UD_SERVO_PIN, 0, 200)
+
+def set_angle(pin, angle):
+    """Set servo to specified angle."""
+    pulse = int(5 + (angle / 180.0) * 20)
+    wp.softPwmWrite(pin, pulse)
+
+def nod_yes():
+    """Make robot arm nod yes (up-down motion)."""
+    print("🤖 Nodding YES")
+    for a in (90, 150, 90, 30, 90):
+        set_angle(UD_SERVO_PIN, a)
+        time.sleep(0.2)
+
+def shake_no():
+    """Make robot arm shake no (left-right motion)."""
+    print("🤖 Shaking NO")
+    for a in (90, 150, 90, 30, 90):
+        set_angle(LR_SERVO_PIN, a)
+        time.sleep(0.2)
 
 # ===== 🔊 Audio Configuration =====
 SAMPLE_RATE_HW = 48000       # Mic's hardware-supported rate
@@ -38,7 +70,6 @@ def speak(response):
     except Exception as e:
         print("🚨 Error during TTS:", e)
 
-
 # ===== 🧠 Home Assistant Setup =====
 HA_URL = "https://tfd9eaklrsaswbraeoswnlyfx4pmaaoj.ui.nabu.casa"
 TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjYzIxZDIyZDdjZmE0MGQ1YTIxMjYyOWMwNDIyNzJlYSIsImlhdCI6MTc0NjcwNTMyMSwiZXhwIjoyMDYyMDY1MzIxfQ.UI0lzY2hLPEFmWQaHkvjw-VGwLzie_-PXNA2PMIPvws" 
@@ -57,10 +88,22 @@ def converse(text, conversation_id=None):
         payload["conversation_id"] = conversation_id
 
     print(f"📡 Sending to Home Assistant: {text}")
-    response = requests.post(f"{HA_URL}/api/conversation/process", headers=HEADERS, json=payload)
-    response.raise_for_status()
-    data = response.json()
-    return data.get("response", "<no response>"), data.get("conversation_id")
+    
+    try:
+        response = requests.post(f"{HA_URL}/api/conversation/process", headers=HEADERS, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        
+        # API call was successful - nod yes
+        nod_yes()
+        
+        return data.get("response", "<no response>"), data.get("conversation_id")
+    
+    except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
+        # API call failed - shake no
+        print(f"🚨 API Error: {e}")
+        shake_no()
+        return {"speech": {"plain": {"speech": "Sorry, I couldn't reach Home Assistant."}}}, conversation_id
 
 # ===== 🎧 Vosk Setup =====
 model = Model("vosk-model-small-en-us-0.15")
@@ -73,12 +116,18 @@ stream = p.open(
     channels=1,
     rate=SAMPLE_RATE_HW,
     input=True,
-    input_device_index=2,
+    input_device_index=0,
     frames_per_buffer=2048
 )
 
 # ===== 🤖 Main Loop =====
 print("🧠 Listening for 'Jarvis' at 48kHz (resampled to 16kHz)...")
+print("🤖 Robot arm ready - will nod YES for successful API calls and shake NO for failures")
+
+# Initialize arm to neutral position
+set_angle(LR_SERVO_PIN, 90)
+set_angle(UD_SERVO_PIN, 90)
+
 conv_id = None
 
 try:
@@ -94,9 +143,9 @@ try:
 
             print(f"🧏 Heard: {spoken}")
 
-            if "computer" in spoken:
+            if "jarvis" in spoken:
                 print("🚨 Wake word detected!")
-                command = spoken.split("computer", 1)[1].strip()
+                command = spoken.split("jarvis", 1)[1].strip()
                 if not command:
                     print("🤷 You said 'Jarvis' but nothing after that.")
                     continue
@@ -108,6 +157,11 @@ try:
 except KeyboardInterrupt:
     print("\n👋 Shutting down like a polite robot...")
 finally:
+    # Return to neutral position before exiting
+    set_angle(LR_SERVO_PIN, 90)
+    set_angle(UD_SERVO_PIN, 90)
+    
+    # Clean up resources
     stream.stop_stream()
     stream.close()
     p.terminate()
