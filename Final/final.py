@@ -96,7 +96,7 @@ try:
 
             if "computer" in spoken:
                 print("🚨 Wake word detected!")
-                command = spoken.split("jarvis", 1)[1].strip()
+                command = spoken.split("computer", 1)[1].strip()
                 if not command:
                     print("🤷 You said 'Jarvis' but nothing after that.")
                     continue
