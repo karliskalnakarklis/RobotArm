@@ -94,7 +94,7 @@ try:
 
             print(f"🧏 Heard: {spoken}")
 
-            if "jarvis" in spoken:
+            if "computer" in spoken:
                 print("🚨 Wake word detected!")
                 command = spoken.split("jarvis", 1)[1].strip()
                 if not command:
