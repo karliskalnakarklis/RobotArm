@@ -59,7 +59,6 @@ def resample_audio(audio_data_48k):
 def speak(response):
     """Extracts plain speech from HA response and uses espeak to speak it."""
     try:
-        # Get the speech string from the response dictionary
         text = response.get("speech", {}).get("plain", {}).get("speech", "")
         if not text or not isinstance(text, str):
             print("⚠️ No valid speech string found in response.")
@@ -94,13 +93,10 @@ def converse(text, conversation_id=None):
         response.raise_for_status()
         data = response.json()
         
-        # API call was successful - nod yes
         nod_yes()
-        
         return data.get("response", "<no response>"), data.get("conversation_id")
     
     except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
-        # API call failed - shake no
         print(f"🚨 API Error: {e}")
         shake_no()
         return {"speech": {"plain": {"speech": "Sorry, I couldn't reach Home Assistant."}}}, conversation_id
@@ -121,10 +117,9 @@ stream = p.open(
 )
 
 # ===== 🤖 Main Loop =====
-print("🧠 Listening for 'Jarvis' at 48kHz (resampled to 16kHz)...")
+print("🧠 Listening for 'computer' at 48kHz (resampled to 16kHz)...")
 print("🤖 Robot arm ready - will nod YES for successful API calls and shake NO for failures")
 
-# Initialize arm to neutral position
 set_angle(LR_SERVO_PIN, 90)
 set_angle(UD_SERVO_PIN, 90)
 
@@ -143,11 +138,11 @@ try:
 
             print(f"🧏 Heard: {spoken}")
 
-            if "jarvis" in spoken:
+            if "computer" in spoken:
                 print("🚨 Wake word detected!")
-                command = spoken.split("jarvis", 1)[1].strip()
+                command = spoken.split("computer", 1)[1].strip()
                 if not command:
-                    print("🤷 You said 'Jarvis' but nothing after that.")
+                    print("🤷 You said 'computer' but nothing after that.")
                     continue
 
                 reply, conv_id = converse(command, conversation_id=conv_id)
@@ -157,11 +152,8 @@ try:
 except KeyboardInterrupt:
     print("\n👋 Shutting down like a polite robot...")
 finally:
-    # Return to neutral position before exiting
     set_angle(LR_SERVO_PIN, 90)
     set_angle(UD_SERVO_PIN, 90)
-    
-    # Clean up resources
     stream.stop_stream()
     stream.close()
     p.terminate()
